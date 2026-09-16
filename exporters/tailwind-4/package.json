@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "npx webpack --mode=development --watch",
-    "build": "npx webpack --mode=production"
+    "build": "npx webpack --mode=production",
+    "dev:export": "nodemon --watch dist/build.js --exec 'cd ../.. && rm -rf tokens && supernova run-local-exporter --apiKey=\"$SUPERNOVA_API_KEY\" --designSystemId=843306 --brandId=32422235-3f31-4ce4-9bba-755f00772a08 --themeId=ad2dbd55-c140-4e60-a67d-ba79b4e6846e --themeId=f2acf065-f100-40c9-a50d-8a9e20a8e5de --exporterDir=./exporters/tailwind-4 --outputDir=./tokens --allowOverridingOutput'",
+    "watch": "concurrently --names build,export --prefix-colors cyan,magenta \"npm run dev\" \"npm run dev:export\""
   },
   "author": "Supernova.io",
   "license": "MIT",
@@ -19,6 +21,8 @@
     "@babel/preset-env": "^7.24.0",
     "@babel/preset-typescript": "^7.23.3",
     "@supernovaio/sdk-exporters": "2.3.3",
+    "concurrently": "^9.0.0",
+    "nodemon": "^3.1.0",
     "prettier": "3.0.3",
     "terser-webpack-plugin": "5.4.0",
     "ts-loader": "^7.0.5",
