@@ -77,6 +77,8 @@ export type ExporterConfiguration = {
   useColorUtilityPrefixes: boolean
   /** Configuration for color utility prefixes and their patterns */
   colorUtilityPrefixes: ColorUtilityPrefixes
+  /** Comma-separated top-level token path segments (case-insensitive) whose tokens are excluded from all generated output. Used to hide designer-internal or retired token groups (e.g. "UxTools,Nav"). */
+  excludedTokenPathSegments: string
   /** Find and replace strings in token paths and names */
   findReplace: Record<string, string>
   /** Controls when find/replace is applied: before or after token type prefixes are added */

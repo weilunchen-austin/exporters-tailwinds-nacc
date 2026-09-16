@@ -2,7 +2,7 @@ import { NamingHelper, CSSHelper, GeneralHelper, StringCase } from "@supernovaio
 import { Token, TokenGroup, TokenType, TypographyTokenValue, FontSizeTokenValue, LineHeightTokenValue, LetterSpacingTokenValue, FontWeightTokenValue, TypographyToken, AnyDimensionTokenValue, AnyTokenValue, AnyToken } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FindReplaceTiming } from "../../config"
-import { TAILWIND_TOKEN_PREFIXES, TAILWIND_ALLOWED_CUSTOMIZATION } from "../constants/defaults"
+import { TAILWIND_TOKEN_PREFIXES, TAILWIND_ALLOWED_CUSTOMIZATION, TAILWIND_STRIP_GROUP_TYPES } from "../constants/defaults"
 import { ColorHelper } from "@supernovaio/export-utils"
 import { ColorFormat } from "@supernovaio/export-utils"
 
@@ -23,6 +23,42 @@ export function getTokenPrefix(tokenType: TokenType): string {
  */
 export function isAllowedTokenType(tokenType: TokenType): boolean {
   return TAILWIND_ALLOWED_CUSTOMIZATION.includes(tokenType)
+}
+
+const SEMANTIC_GROUPS = ["background", "text", "border", "foreground"] as const
+type SemanticGroup = typeof SEMANTIC_GROUPS[number]
+
+const BRIDGE_PREFIX: Record<SemanticGroup, string> = {
+  background: "bg",
+  text: "text",
+  border: "border",
+  foreground: "fill"
+}
+
+export function getSemanticGroup(token: Token): SemanticGroup | null {
+  const path = token.tokenPath || []
+  if (path.length < 2 || path[0].toLowerCase() !== "color") return null
+  const group = path[1].toLowerCase()
+  return (SEMANTIC_GROUPS as readonly string[]).includes(group) ? (group as SemanticGroup) : null
+}
+
+export function getBridgeVarName(token: Token, tokenGroups: Array<TokenGroup>): string | null {
+  const group = getSemanticGroup(token)
+  if (!group) return null
+  const full = tokenVariableName(token, tokenGroups)
+  const semanticPrefix = `color-${group}-`
+  if (!full.startsWith(semanticPrefix)) return null
+  return `${BRIDGE_PREFIX[group]}-${full.slice(semanticPrefix.length)}`
+}
+
+export function isExcludedByPath(token: Token): boolean {
+  const raw = exportConfiguration.excludedTokenPathSegments
+  if (!raw) return false
+  const excluded = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  if (excluded.length === 0) return false
+  const path = token.tokenPath || []
+  if (path.length === 0) return false
+  return excluded.includes(path[0].toLowerCase())
 }
 
 /**
@@ -128,7 +164,7 @@ function handleTypographyToken(token: Token, mappedTokens: Map<string, Token>, t
  * @param tokenGroups - Array of token groups for determining token hierarchy
  * @returns Formatted CSS custom property string with optional description comment or null if token type is not allowed
  */
-export function convertedToken(token: Token, mappedTokens: Map<string, Token>, tokenGroups: Array<TokenGroup>, colorTokensNeedingOklch?: Set<string>): string | null {
+export function convertedToken(token: Token, mappedTokens: Map<string, Token>, tokenGroups: Array<TokenGroup>, colorTokensNeedingOklch?: Set<string>, themePath?: string): string | null {
   // Skip tokens that are not allowed for Tailwind customization
   if (!isAllowedTokenType(token.tokenType)) {
     return null;
@@ -137,6 +173,34 @@ export function convertedToken(token: Token, mappedTokens: Map<string, Token>, t
   // Special handling for typography tokens
   if (token.tokenType === TokenType.typography) {
     return handleTypographyToken(token, mappedTokens, tokenGroups)
+  }
+
+  // Bridge-var pattern for semantic colors (see design guidelines §6).
+  // - In the BASE file (no themePath): emit `--color-background-primary: var(--bg-primary);`
+  //   so Tailwind's `@theme inline` inlines the bridge reference into every auto-generated utility.
+  // - In THEME files (themePath set): emit `--bg-primary: <themed value>;` under the theme selector.
+  const bridge = getBridgeVarName(token, tokenGroups)
+  if (bridge) {
+    const indentString = GeneralHelper.indent(exportConfiguration.indent)
+    let out = ""
+    if (exportConfiguration.showDescriptions && token.description) {
+      out += `${indentString}/* ${token.description.trim()} */\n`
+    }
+    if (themePath) {
+      const value = CSSHelper.tokenToCSS(token, mappedTokens, {
+        allowReferences: exportConfiguration.useReferences,
+        decimals: exportConfiguration.colorPrecision,
+        colorFormat: exportConfiguration.colorFormat,
+        forceRemUnit: exportConfiguration.forceRemUnit,
+        remBase: exportConfiguration.remBase,
+        tokenToVariableRef: (t) => `var(--${tokenVariableName(t, tokenGroups)})`
+      })
+      out += `${indentString}--${bridge}: ${value};`
+    } else {
+      const semanticName = tokenVariableName(token, tokenGroups)
+      out += `${indentString}--${semanticName}: var(--${bridge});`
+    }
+    return out
   }
 
   // Generate the CSS variable name based on token properties and configuration
@@ -362,7 +426,11 @@ export function tokenVariableName(token: Token, tokenGroups: Array<TokenGroup>):
 
   // For non-color tokens or when color utility prefixes are disabled
   const parent = tokenGroups.find((group) => group.id === token.parentGroupId)
-  let name = NamingHelper.codeSafeVariableNameForToken(token, StringCase.kebabCase, parent || null, prefix, findReplaceForNamingHelper)
+  // For token types whose Figma group name duplicates the Tailwind namespace (FontSize, LineHeight,
+  // FontWeight, FontFamily, BorderRadius), drop the parent so we get e.g. `--text-md` instead of
+  // `--text-font-size-md`. See design guidelines §2.2.
+  const effectiveParent = TAILWIND_STRIP_GROUP_TYPES.includes(token.tokenType) ? null : (parent || null)
+  let name = NamingHelper.codeSafeVariableNameForToken(token, StringCase.kebabCase, effectiveParent, prefix, findReplaceForNamingHelper)
   name = normalizeForTailwindConfig(name);
   
   // Apply find/replace after prefix if timing is set to afterPrefix

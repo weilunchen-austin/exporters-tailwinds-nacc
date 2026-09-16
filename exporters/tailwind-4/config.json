@@ -2,7 +2,7 @@
     {
         "key": "colorFormat",
         "type": "enum",
-        "default": "smartOklch",
+        "default": "smartHashHex",
         "title": "Color format",
         "description": "Export color token values in the selected color format.",
         "category": "Colors",
@@ -60,7 +60,7 @@
     {
         "key": "useColorUtilityPrefixes",
         "type": "boolean",
-        "default": true,
+        "default": false,
         "title": "Use color utility prefixes",
         "description": "Enable specific prefixes for different color utilities. Only applies to color tokens.",
         "category": "Colors"
@@ -100,6 +100,14 @@
         "allowedValues": {
             "type": "string"
         }
+    },
+    {
+        "key": "excludedTokenPathSegments",
+        "type": "string",
+        "default": "UxTools,Nav",
+        "title": "Excluded token path segments",
+        "description": "Comma-separated top-level token path segments (case-insensitive) whose tokens are excluded from all generated output. Used to hide designer-internal or retired token groups.",
+        "category": "Colors"
     },
     {
         "key": "colorPrecision",
@@ -147,7 +155,7 @@
     {
         "key": "fileStructure",
         "type": "enum",
-        "default": "singleFile",
+        "default": "separateByType",
         "title": "File structure",
         "description": "Control how token styles are organized in files",
         "category": "File structure",
@@ -259,7 +267,7 @@
     {
         "key": "generateIndexFile",
         "type": "boolean",
-        "default": false,
+        "default": true,
         "title": "Generate index file",
         "description": "Generate a file with imports for all base and theme style files.",
         "category": "File structure"

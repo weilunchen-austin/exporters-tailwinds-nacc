@@ -7,8 +7,9 @@ import { FileHelper, ThemeHelper, GeneralHelper } from "@supernovaio/export-util
 import { OutputTextFile, Token, TokenGroup, TokenType, TokenTheme } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FileStructure } from "../../config"
-import { convertedToken, isAllowedTokenType, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
+import { convertedToken, isAllowedTokenType, isExcludedByPath, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
+import { generateAliases, detectAliasCollisions } from "../content/aliases"
 import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
 
 /**
@@ -37,6 +38,8 @@ function processTokens(tokens: Array<Token>, themePath: string = '', theme?: Tok
 
     // Filter out tokens not allowed for Tailwind customization
     processedTokens = processedTokens.filter(token => isAllowedTokenType(token.tokenType))
+    // Filter out tokens whose top-level path segment is in the excluded list
+    processedTokens = processedTokens.filter(token => !isExcludedByPath(token))
     return processedTokens
 }
 
@@ -185,11 +188,12 @@ function generateTypographyContent(tokens: Array<Token>, tokenGroups: Array<Toke
  * @returns CSS variable declarations as a string
  */
 function generateCSSVariables(
-    tokens: Array<Token>, 
-    mappedTokens: Map<string, Token>, 
+    tokens: Array<Token>,
+    mappedTokens: Map<string, Token>,
     tokenGroups: Array<TokenGroup>,
     colorTokensNeedingOklch?: Set<string>,
-    type?: TokenType
+    type?: TokenType,
+    themePath?: string
 ): string {
     const indentString = GeneralHelper.indent(exportConfiguration.indent)
     let cssVariables = ''
@@ -220,7 +224,7 @@ function generateCSSVariables(
         
         // Convert tokens to CSS variable declarations
         const cssDeclarations = tokensOfType
-            .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch))
+            .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch, themePath))
             .filter((declaration): declaration is string => declaration !== null) // Filter out null returns
             .join("\n")
         
@@ -303,9 +307,13 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
         Array.from(new Set(processedTokens.map(t => t.tokenType)))
     )
 
-    // Use configured selector for base tokens or theme selector for themed tokens
-    const selector = themePath && theme 
-        ? exportConfiguration.themeSelector.replace('{theme}', themePath)
+    // Use configured selector for base tokens; for themed tokens, use `:root` for the default
+    // (light) theme and `.theme-<name>` for others. Per design guidelines §6 the light theme is
+    // treated as the default and applied at :root, dark opts in via `.theme-dark`.
+    const selector = themePath && theme
+        ? (themePath.toLowerCase() === 'light'
+            ? ':root'
+            : exportConfiguration.themeSelector.replace('{theme}', themePath))
         : exportConfiguration.cssSelector
 
     // Generate CSS variables
@@ -316,7 +324,7 @@ export function styleOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGr
     }
     // Prepend OKLCH utility variables
     cssVariables += oklchUtilityVariables
-    cssVariables += generateCSSVariables(processedTokens, mappedTokens, tokenGroups, colorTokensNeedingOklch)
+    cssVariables += generateCSSVariables(processedTokens, mappedTokens, tokenGroups, colorTokensNeedingOklch, undefined, themePath)
 
     // Check if any tokens use references and if references are enabled
     const hasReferences = exportConfiguration.useReferences && processedTokens.some(token => 
@@ -377,9 +385,13 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
         tokensByType.get(type)!.push(token)
     })
 
-    // Use configured selector for base tokens or theme selector for themed tokens
-    const selector = themePath && theme 
-        ? exportConfiguration.themeSelector.replace('{theme}', themePath)
+    // Use configured selector for base tokens; for themed tokens, use `:root` for the default
+    // (light) theme and `.theme-<name>` for others. Per design guidelines §6 the light theme is
+    // treated as the default and applied at :root, dark opts in via `.theme-dark`.
+    const selector = themePath && theme
+        ? (themePath.toLowerCase() === 'light'
+            ? ':root'
+            : exportConfiguration.themeSelector.replace('{theme}', themePath))
         : exportConfiguration.cssSelector
 
     // Check if any tokens use references and if references are enabled
@@ -401,9 +413,13 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
         // Start with Tailwind import with prefix if configured, but only for base file
         let content = ''
         if (!themePath) {
-            content = exportConfiguration.globalPrefix 
+            content = exportConfiguration.globalPrefix
                 ? `@import "tailwindcss" prefix(${exportConfiguration.globalPrefix});\n\n`
                 : '@import "tailwindcss";\n\n'
+            // Register the `dark:` variant once, in the base color file. See design guidelines §6.
+            if (type === TokenType.color) {
+                content += `@custom-variant dark (&:where(.theme-dark, .theme-dark *));\n\n`
+            }
         }
 
         // Add debug information
@@ -411,7 +427,7 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
 
         // Generate CSS variables
         let cssVariables = ''
-        cssVariables += generateCSSVariables(tokensOfType, mappedTokens, tokenGroups, undefined, type)
+        cssVariables += generateCSSVariables(tokensOfType, mappedTokens, tokenGroups, undefined, type, themePath)
 
         // Add the CSS variables to the content
         content += `${themeDirective} {\n${cssVariables}}\n`
@@ -499,9 +515,35 @@ export function resetOutputFile(): OutputTextFile | null {
 }
 
 /**
+ * Generates the aliases.css file with `@utility` short-name bindings for semantic color tokens.
+ * Fails the export via thrown Error if duplicate short names would collide within a utility prefix.
+ */
+export function aliasesOutputFile(tokens: Array<Token>, tokenGroups: Array<TokenGroup>): OutputTextFile | null {
+    const collisions = detectAliasCollisions(tokens, tokenGroups)
+    if (collisions.length > 0) {
+        throw new Error(`Alias generation failed:\n  - ${collisions.join("\n  - ")}`)
+    }
+
+    const body = generateAliases(tokens, tokenGroups)
+    if (!body) return null
+
+    let content = body
+
+    if (exportConfiguration.showGeneratedFileDisclaimer) {
+        content = GeneralHelper.addDisclaimer(exportConfiguration.disclaimer, content)
+    }
+
+    return FileHelper.createTextFile({
+        relativePath: "./",
+        fileName: "aliases.css",
+        content: content,
+    })
+}
+
+/**
  * Generates an index file that imports all token style files and theme variations
  * This function creates an index.css file that imports all generated CSS files
- * 
+ *
  * @param tokens - Array of tokens to process
  * @param themes - Array of themes to include
  * @returns OutputTextFile object or null if index file generation is disabled
@@ -546,8 +588,16 @@ export function indexOutputFile(tokens: Array<Token>, themes: Array<TokenTheme |
         }
     }
 
-    // Import theme files
-    themes.forEach(theme => {
+    // Import theme files — light must come first so darker themes (which redeclare the same bridge
+    // vars at equal specificity) win via source order. See design guidelines §6.
+    const sortedThemes = [...themes].sort((a, b) => {
+        const nameA = (typeof a === 'string' ? a : ThemeHelper.getThemeIdentifier(a)).toLowerCase()
+        const nameB = (typeof b === 'string' ? b : ThemeHelper.getThemeIdentifier(b)).toLowerCase()
+        if (nameA === 'light') return -1
+        if (nameB === 'light') return 1
+        return 0
+    })
+    sortedThemes.forEach(theme => {
         const themePath = typeof theme === 'string' ? theme : ThemeHelper.getThemeIdentifier(theme)
         if (exportConfiguration.fileStructure === FileStructure.SingleFile) {
             content += `@import "./tailwind.${themePath}.css";\n`
@@ -577,6 +627,10 @@ export function indexOutputFile(tokens: Array<Token>, themes: Array<TokenTheme |
         }
     })
 
+    // Import the generated aliases layer (short utility names). Must come after base/theme imports
+    // so the referenced `--color-*` variables are already declared.
+    content += `\n@import "./aliases.css";\n`
+
     // Add disclaimer if enabled
     if (exportConfiguration.showGeneratedFileDisclaimer) {
         content = GeneralHelper.addDisclaimer(exportConfiguration.disclaimer, content)
@@ -588,4 +642,4 @@ export function indexOutputFile(tokens: Array<Token>, themes: Array<TokenTheme |
         fileName: exportConfiguration.indexFileName || "index.css",
         content: content,
     })
-} 
+}

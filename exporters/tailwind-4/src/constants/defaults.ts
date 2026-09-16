@@ -42,6 +42,20 @@ export const TAILWIND_TOKEN_PREFIXES: Record<TokenType, string> = {
  * - TextDecoration (use Tailwind text-decoration utilities instead)
  * - Visibility (use Tailwind visibility utilities instead)
  */
+/**
+ * Token types where the Figma group name duplicates the Tailwind namespace prefix.
+ * For these, the parent group is dropped when building variable names so
+ * `--text-font-size-md` becomes `--text-md`, `--radius-border-radius-md` becomes
+ * `--radius-md`, etc. See §2.2 of the design token guidelines.
+ */
+export const TAILWIND_STRIP_GROUP_TYPES: TokenType[] = [
+  TokenType.fontSize,
+  TokenType.lineHeight,
+  TokenType.fontWeight,
+  TokenType.fontFamily,
+  TokenType.radius
+]
+
 export const TAILWIND_ALLOWED_CUSTOMIZATION: TokenType[] = [
   TokenType.color,
   TokenType.space,

@@ -6,9 +6,9 @@
 
 import { Supernova, PulsarContext, RemoteVersionIdentifier, AnyOutputFile, TokenType, Token, TokenGroup, TokenTheme, OutputTextFile } from "@supernovaio/sdk-exporters"
 import { ExporterConfiguration, ThemeExportStyle, FileStructure } from "../config"
-import { styleOutputFile, generateStyleFiles, indexOutputFile, resetOutputFile } from "./files/tailwind-file"
+import { styleOutputFile, generateStyleFiles, indexOutputFile, resetOutputFile, aliasesOutputFile } from "./files/tailwind-file"
 import { ThemeHelper, WriteTokenPropStore } from "@supernovaio/export-utils"
-import { tokenVariableName, isAllowedTokenType } from "./content/token"
+import { tokenVariableName, isAllowedTokenType, isExcludedByPath } from "./content/token"
 import { variableToTailwindClassName } from "./utils/tailwind-class"
 
 /** Exporter configuration from the resolved default configuration and user overrides */
@@ -86,6 +86,11 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
     tokenGroups = tokenGroups.filter((tokenGroup) => tokenGroup.brandId === brand.id)
   }
 
+  // Build the generated `aliases.css` once from base tokens. Alias names depend on paths/names,
+  // not values, so it is theme-independent — same file works for all theme flows below.
+  // Throws if duplicate short names would collide within a utility prefix.
+  const aliasesFile = aliasesOutputFile(tokens, tokenGroups)
+
   // Write back generated Tailwind classnames and CSS variable names to token properties
   // This allows designers to see the generated names directly in their design system
   // Only runs during actual export, not in preview mode
@@ -94,7 +99,7 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
 
     // Get only tokens that can be used in Tailwind (colors, spacing, etc)
     // Filters out unsupported token types like assets or compositions
-    const allowedTokens = tokens.filter(token => isAllowedTokenType(token.tokenType))
+    const allowedTokens = tokens.filter(token => isAllowedTokenType(token.tokenType) && !isExcludedByPath(token))
 
     // Write generated Tailwind classnames (e.g. "bg-primary") back to tokens
     // These will appear in the "Tailwind class" property of each token
@@ -139,13 +144,14 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
         if (exportConfiguration.fileStructure === FileStructure.SingleFile) {
           return processOutputFiles([
             styleOutputFile(tokens, tokenGroups),
-            indexOutputFile(tokens)
+            indexOutputFile(tokens),
+            aliasesFile
           ])
         } else {
           const styleFiles = generateStyleFiles(tokens, tokenGroups)
           const resetFile = resetOutputFile()
           const indexFile = indexOutputFile(tokens)
-          return [...styleFiles, ...(resetFile ? [resetFile] : []), ...(indexFile ? [indexFile] : [])]
+          return [...styleFiles, ...(resetFile ? [resetFile] : []), ...(indexFile ? [indexFile] : []), ...(aliasesFile ? [aliasesFile] : [])]
         }
 
       case ThemeExportStyle.SeparateFiles:
@@ -194,7 +200,8 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
         // Add index file
         const indexFile = indexOutputFile(tokens, themesToApply)
         if (indexFile) outputFiles.push(indexFile)
-        
+        if (aliasesFile) outputFiles.push(aliasesFile)
+
         return outputFiles
 
       case ThemeExportStyle.MergedTheme:
@@ -241,7 +248,8 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
         // Add index file
         const mergedIndexFile = indexOutputFile(tokens, ['themed'])
         if (mergedIndexFile) mergedOutputFiles.push(mergedIndexFile)
-        
+        if (aliasesFile) mergedOutputFiles.push(aliasesFile)
+
         return mergedOutputFiles
     }
   }
@@ -250,15 +258,16 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
   if (exportConfiguration.fileStructure === FileStructure.SingleFile) {
     return processOutputFiles([
         exportConfiguration.exportBaseValues ? styleOutputFile(tokens, tokenGroups) : null,
-        indexOutputFile(tokens)
+        indexOutputFile(tokens),
+        aliasesFile
     ])
   } else {
-    const styleFiles = exportConfiguration.exportBaseValues 
-    ? generateStyleFiles(tokens, tokenGroups) 
+    const styleFiles = exportConfiguration.exportBaseValues
+    ? generateStyleFiles(tokens, tokenGroups)
     : []
     const resetFile = exportConfiguration.fileStructure === FileStructure.SeparateByType && shouldDisableDefaultTailwindConfiguration() ? resetOutputFile() : null
     const indexFile = indexOutputFile(tokens)
-    return [...styleFiles, ...(resetFile ? [resetFile] : []), ...(indexFile ? [indexFile] : [])]
+    return [...styleFiles, ...(resetFile ? [resetFile] : []), ...(indexFile ? [indexFile] : []), ...(aliasesFile ? [aliasesFile] : [])]
   }
 })
 
