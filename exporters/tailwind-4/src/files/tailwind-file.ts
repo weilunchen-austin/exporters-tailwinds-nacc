@@ -218,19 +218,46 @@ function generateCSSVariables(
     tokensByType.forEach((tokensOfType, tokenType) => {
         // Add section comment for token type
         cssVariables += `\n${indentString}/* ${tokenType} */\n`
-        
+
         // Add debug count information if debug is enabled
         if (exportConfiguration.debug) {
             cssVariables += `${indentString}/* ${tokensOfType.length} ${tokenType} tokens */\n`
         }
-        
-        // Convert tokens to CSS variable declarations
-        const cssDeclarations = tokensOfType
-            .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch, themePath))
-            .filter((declaration): declaration is string => declaration !== null) // Filter out null returns
-            .join("\n")
-        
-        cssVariables += cssDeclarations + "\n"
+
+        // Sub-group tokens by tokenPath[1] + tokenPath[2] (e.g. "Gray / Light", "Background"),
+        // preserving Supernova's sortOrder via insertion order. Path[0] is dropped because it
+        // duplicates the type header already emitted above (e.g. "Color").
+        const subGroups = new Map<string, Token[]>()
+        for (const token of tokensOfType) {
+            const path = token.tokenPath || []
+            const key = path.slice(1, 3).join(" / ")
+            const bucket = subGroups.get(key)
+            if (bucket) {
+                bucket.push(token)
+            } else {
+                subGroups.set(key, [token])
+            }
+        }
+
+        const emitSubHeaders = subGroups.size > 1
+
+        const sections: string[] = []
+        subGroups.forEach((groupTokens, groupName) => {
+            const declarations = groupTokens
+                .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch, themePath))
+                .filter((declaration): declaration is string => declaration !== null)
+
+            if (declarations.length === 0) return
+
+            let section = ""
+            if (emitSubHeaders && groupName) {
+                section += `\n${indentString}/* ${groupName} */\n`
+            }
+            section += declarations.join("\n")
+            sections.push(section)
+        })
+
+        cssVariables += sections.join("\n") + "\n"
     })
     
     return cssVariables
