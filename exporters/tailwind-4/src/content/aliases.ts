@@ -39,7 +39,10 @@ export function generateAliases(tokens: Array<Token>, tokenGroups: Array<TokenGr
   const colorTokens = tokens.filter(t => t.tokenType === TokenType.color && !isExcludedByPath(t) && !isExcludedByProperty(t))
 
   const collisions = new Map<string, string[]>()
-  const lines: string[] = []
+  // Bucket @utility lines by semantic source group so the emitted file mirrors the color
+  // file's sub-grouping. Map preserves insertion order, so groups appear in whatever order
+  // Supernova's sortOrder puts them.
+  const bucketsBySemantic = new Map<Lowercase<SemanticGroup>, string[]>()
 
   for (const token of colorTokens) {
     const group = semanticGroupOf(token)
@@ -60,11 +63,27 @@ export function generateAliases(tokens: Array<Token>, tokenGroups: Array<TokenGr
       }
       existing.push(shortName)
       collisions.set(key, existing)
-      lines.push(`@utility ${utilName} { ${property}: var(${cssVarName}); }`)
+
+      let bucket = bucketsBySemantic.get(group)
+      if (!bucket) {
+        bucket = []
+        bucketsBySemantic.set(group, bucket)
+      }
+      bucket.push(`@utility ${utilName} { ${property}: var(${cssVarName}); }`)
     }
   }
 
-  return lines.join("\n") + (lines.length ? "\n" : "")
+  if (bucketsBySemantic.size === 0) return ""
+
+  const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+  const sections: string[] = []
+  bucketsBySemantic.forEach((lines, group) => {
+    if (lines.length === 0) return
+    sections.push(`/* ${titleCase(group)} */\n${lines.join("\n")}`)
+  })
+
+  return sections.join("\n\n") + "\n"
 }
 
 export function detectAliasCollisions(tokens: Array<Token>, tokenGroups: Array<TokenGroup>): string[] {
