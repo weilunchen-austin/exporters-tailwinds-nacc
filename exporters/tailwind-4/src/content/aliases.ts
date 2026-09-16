@@ -14,9 +14,10 @@ const UTILITY_MAP: Record<Lowercase<SemanticGroup>, UtilityBinding[]> = {
     { utility: "ring", property: "--tw-ring-color" },
     { utility: "outline", property: "outline-color" }
   ],
+  // Foreground maps to fill only — this DS uses Material Icons, which are fill-based
+  // shapes (even Outlined style is a filled shape with a hole), never stroked paths.
   foreground: [
-    { utility: "fill", property: "fill" },
-    { utility: "stroke", property: "stroke" }
+    { utility: "fill", property: "fill" }
   ]
 }
 
