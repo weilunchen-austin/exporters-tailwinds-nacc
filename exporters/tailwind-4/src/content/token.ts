@@ -265,6 +265,14 @@ export function convertedToken(token: Token, mappedTokens: Map<string, Token>, t
         // For direct values (background blur) just return as is
         return value
       }
+      if (t.tokenType === TokenType.shadow) {
+        // The SDK emits `rgba(var(--color-<name>), <alpha>)` for shadow color references,
+        // which is invalid CSS: the var expands to a hex string, not a `r, g, b` triple.
+        // In this DS the referenced color already carries the intended alpha in its own
+        // hex (e.g. `#262c2c1f` = 12%), so drop the wrapper and use the reference directly.
+        // The Supernova shadow layer's opacity is redundant with the color's baked-in alpha.
+        return value.replace(/rgba\(var\(--([^)]+)\),\s*[\d.]+\)/g, "var(--$1)")
+      }
       return undefined
     }
   })
