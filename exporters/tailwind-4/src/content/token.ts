@@ -61,6 +61,20 @@ export function isExcludedByPath(token: Token): boolean {
   return excluded.includes(path[0].toLowerCase())
 }
 
+// Excludes tokens flagged by a Supernova custom property (defaults to the boolean `internal`
+// column). Tolerates boolean, number, or string ("yes"/"true"/"1") shapes so it works whether
+// the DS team models the flag as a boolean, select, or text property.
+export function isExcludedByProperty(token: Token): boolean {
+  const codeName = exportConfiguration.excludeByPropertyName?.trim()
+  if (!codeName) return false
+  const value = token.propertyValues?.[codeName]
+  if (value === undefined || value === null) return false
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value > 0
+  const v = String(value).trim().toLowerCase()
+  return v === "true" || v === "yes" || v === "1"
+}
+
 /**
  * Generates debug information for a token
  * @param token - The token to generate debug info for

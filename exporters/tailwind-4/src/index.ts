@@ -8,7 +8,7 @@ import { Supernova, PulsarContext, RemoteVersionIdentifier, AnyOutputFile, Token
 import { ExporterConfiguration, ThemeExportStyle, FileStructure } from "../config"
 import { styleOutputFile, generateStyleFiles, indexOutputFile, resetOutputFile, aliasesOutputFile } from "./files/tailwind-file"
 import { ThemeHelper, WriteTokenPropStore } from "@supernovaio/export-utils"
-import { tokenVariableName, isAllowedTokenType, isExcludedByPath } from "./content/token"
+import { tokenVariableName, isAllowedTokenType, isExcludedByPath, isExcludedByProperty } from "./content/token"
 import { variableToTailwindClassName } from "./utils/tailwind-class"
 
 /** Exporter configuration from the resolved default configuration and user overrides */
@@ -99,7 +99,7 @@ Pulsar.export(async (sdk: Supernova, context: PulsarContext): Promise<Array<AnyO
 
     // Get only tokens that can be used in Tailwind (colors, spacing, etc)
     // Filters out unsupported token types like assets or compositions
-    const allowedTokens = tokens.filter(token => isAllowedTokenType(token.tokenType) && !isExcludedByPath(token))
+    const allowedTokens = tokens.filter(token => isAllowedTokenType(token.tokenType) && !isExcludedByPath(token) && !isExcludedByProperty(token))
 
     // Write generated Tailwind classnames (e.g. "bg-primary") back to tokens
     // These will appear in the "Tailwind class" property of each token

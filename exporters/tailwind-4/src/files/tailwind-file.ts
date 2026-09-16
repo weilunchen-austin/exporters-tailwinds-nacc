@@ -7,7 +7,7 @@ import { FileHelper, ThemeHelper, GeneralHelper } from "@supernovaio/export-util
 import { OutputTextFile, Token, TokenGroup, TokenType, TokenTheme } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FileStructure } from "../../config"
-import { convertedToken, isAllowedTokenType, isExcludedByPath, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
+import { convertedToken, isAllowedTokenType, isExcludedByPath, isExcludedByProperty, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
 import { generateAliases, detectAliasCollisions } from "../content/aliases"
 import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
@@ -40,6 +40,8 @@ function processTokens(tokens: Array<Token>, themePath: string = '', theme?: Tok
     processedTokens = processedTokens.filter(token => isAllowedTokenType(token.tokenType))
     // Filter out tokens whose top-level path segment is in the excluded list
     processedTokens = processedTokens.filter(token => !isExcludedByPath(token))
+    // Filter out tokens flagged as internal via a Supernova custom property
+    processedTokens = processedTokens.filter(token => !isExcludedByProperty(token))
     return processedTokens
 }
 

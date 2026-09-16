@@ -79,6 +79,8 @@ export type ExporterConfiguration = {
   colorUtilityPrefixes: ColorUtilityPrefixes
   /** Comma-separated top-level token path segments (case-insensitive) whose tokens are excluded from all generated output. Used to hide designer-internal or retired token groups (e.g. "UxTools,Nav"). */
   excludedTokenPathSegments: string
+  /** CodeName of a Supernova token property whose truthy value marks a token as excluded from all generated output. Defaults to "internal". Leave empty to disable. */
+  excludeByPropertyName: string
   /** Find and replace strings in token paths and names */
   findReplace: Record<string, string>
   /** Controls when find/replace is applied: before or after token type prefixes are added */

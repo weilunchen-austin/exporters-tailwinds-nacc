@@ -110,6 +110,14 @@
         "category": "Colors"
     },
     {
+        "key": "excludeByPropertyName",
+        "type": "string",
+        "default": "internal",
+        "title": "Exclude by property",
+        "description": "Identifier (codeName) of a Supernova token property whose truthy value marks a token as excluded from all generated output. Leave empty to disable.",
+        "category": "Colors"
+    },
+    {
         "key": "colorPrecision",
         "type": "number",
         "default": 3,

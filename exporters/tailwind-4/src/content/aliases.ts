@@ -1,5 +1,5 @@
 import { Token, TokenGroup, TokenType } from "@supernovaio/sdk-exporters"
-import { tokenVariableName, isExcludedByPath } from "./token"
+import { tokenVariableName, isExcludedByPath, isExcludedByProperty } from "./token"
 
 const SEMANTIC_GROUPS = ["Background", "Text", "Border", "Foreground"] as const
 type SemanticGroup = typeof SEMANTIC_GROUPS[number]
@@ -36,7 +36,7 @@ function shortNameFor(token: Token, tokenGroups: Array<TokenGroup>, group: strin
 }
 
 export function generateAliases(tokens: Array<Token>, tokenGroups: Array<TokenGroup>): string {
-  const colorTokens = tokens.filter(t => t.tokenType === TokenType.color && !isExcludedByPath(t))
+  const colorTokens = tokens.filter(t => t.tokenType === TokenType.color && !isExcludedByPath(t) && !isExcludedByProperty(t))
 
   const collisions = new Map<string, string[]>()
   const lines: string[] = []
@@ -71,7 +71,7 @@ export function detectAliasCollisions(tokens: Array<Token>, tokenGroups: Array<T
   const seen = new Map<string, string>()
   const errors: string[] = []
 
-  const colorTokens = tokens.filter(t => t.tokenType === TokenType.color && !isExcludedByPath(t))
+  const colorTokens = tokens.filter(t => t.tokenType === TokenType.color && !isExcludedByPath(t) && !isExcludedByProperty(t))
 
   for (const token of colorTokens) {
     const group = semanticGroupOf(token)
