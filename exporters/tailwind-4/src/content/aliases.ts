@@ -35,14 +35,28 @@ function shortNameFor(token: Token, tokenGroups: Array<TokenGroup>, group: strin
   return full.slice(prefix.length)
 }
 
+// Header name shown for each utility bucket. `bg`/`text` reuse the semantic group name so
+// the header reads meaningfully; the rest are named after the utility itself so multi-binding
+// semantics (Border → border/ring/outline, Foreground → fill/stroke) split into their own
+// sections rather than being interleaved under one heading.
+const UTILITY_SECTION_HEADER: Record<string, string> = {
+  bg: "Background",
+  text: "Text",
+  border: "Border",
+  ring: "Ring",
+  outline: "Outline",
+  fill: "Fill",
+  stroke: "Stroke"
+}
+
 export function generateAliases(tokens: Array<Token>, tokenGroups: Array<TokenGroup>): string {
   const colorTokens = tokens.filter(t => t.tokenType === TokenType.color && !isExcludedByPath(t) && !isExcludedByProperty(t))
 
   const collisions = new Map<string, string[]>()
-  // Bucket @utility lines by semantic source group so the emitted file mirrors the color
-  // file's sub-grouping. Map preserves insertion order, so groups appear in whatever order
-  // Supernova's sortOrder puts them.
-  const bucketsBySemantic = new Map<Lowercase<SemanticGroup>, string[]>()
+  // Bucket @utility lines by utility name (bg, text, fill, stroke, border, ring, outline) so
+  // each utility type gets its own header. Map preserves insertion order — buckets appear in
+  // the order their first line was emitted, which reflects Supernova's sortOrder.
+  const bucketsByUtility = new Map<string, string[]>()
 
   for (const token of colorTokens) {
     const group = semanticGroupOf(token)
@@ -64,23 +78,22 @@ export function generateAliases(tokens: Array<Token>, tokenGroups: Array<TokenGr
       existing.push(shortName)
       collisions.set(key, existing)
 
-      let bucket = bucketsBySemantic.get(group)
+      let bucket = bucketsByUtility.get(utility)
       if (!bucket) {
         bucket = []
-        bucketsBySemantic.set(group, bucket)
+        bucketsByUtility.set(utility, bucket)
       }
       bucket.push(`@utility ${utilName} { ${property}: var(${cssVarName}); }`)
     }
   }
 
-  if (bucketsBySemantic.size === 0) return ""
-
-  const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+  if (bucketsByUtility.size === 0) return ""
 
   const sections: string[] = []
-  bucketsBySemantic.forEach((lines, group) => {
+  bucketsByUtility.forEach((lines, utility) => {
     if (lines.length === 0) return
-    sections.push(`/* ${titleCase(group)} */\n${lines.join("\n")}`)
+    const header = UTILITY_SECTION_HEADER[utility] ?? (utility.charAt(0).toUpperCase() + utility.slice(1))
+    sections.push(`/* ${header} */\n${lines.join("\n")}`)
   })
 
   return sections.join("\n\n") + "\n"
