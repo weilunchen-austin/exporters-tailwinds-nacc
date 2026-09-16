@@ -51,8 +51,11 @@ export function getBridgeVarName(token: Token, tokenGroups: Array<TokenGroup>): 
   return `${BRIDGE_PREFIX[group]}-${full.slice(semanticPrefix.length)}`
 }
 
+// Excludes tokens whose top-level path segment matches the configured list (e.g. "UxTools,Nav").
+// Falls back to the same default as config.json when Pulsar hasn't materialized the config value
+// — the local CLI and some pipeline runs skip options that pre-date the pipeline's saved settings.
 export function isExcludedByPath(token: Token): boolean {
-  const raw = exportConfiguration.excludedTokenPathSegments
+  const raw = exportConfiguration.excludedTokenPathSegments ?? "UxTools,Nav"
   if (!raw) return false
   const excluded = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
   if (excluded.length === 0) return false
@@ -64,8 +67,11 @@ export function isExcludedByPath(token: Token): boolean {
 // Excludes tokens flagged by a Supernova custom property (defaults to the boolean `internal`
 // column). Tolerates boolean, number, or string ("yes"/"true"/"1") shapes so it works whether
 // the DS team models the flag as a boolean, select, or text property.
+// Falls back to codeName "internal" when Pulsar hasn't materialized the config value — the
+// local CLI and some pipeline runs skip options that pre-date the pipeline's saved settings.
 export function isExcludedByProperty(token: Token): boolean {
-  const codeName = exportConfiguration.excludeByPropertyName?.trim()
+  const configured = exportConfiguration.excludeByPropertyName
+  const codeName = (typeof configured === "string" ? configured.trim() : "") || "internal"
   if (!codeName) return false
   const value = token.propertyValues?.[codeName]
   if (value === undefined || value === null) return false
