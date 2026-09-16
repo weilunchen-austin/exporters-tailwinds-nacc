@@ -460,12 +460,19 @@ export function tokenVariableName(token: Token, tokenGroups: Array<TokenGroup>):
   const effectiveParent = TAILWIND_STRIP_GROUP_TYPES.includes(token.tokenType) ? null : (parent || null)
   let name = NamingHelper.codeSafeVariableNameForToken(token, StringCase.kebabCase, effectiveParent, prefix, findReplaceForNamingHelper)
   name = normalizeForTailwindConfig(name);
-  
+
+  // Drop the "elevation" segment from shadow names — Tailwind's own `shadow-*` prefix already
+  // conveys elevation, so `--shadow-elevation-form-action` reads as noise. Keeps the parent
+  // group (Form, Surface) intact so `--shadow-form-action` still carries semantic clarity.
+  if (token.tokenType === TokenType.shadow) {
+    name = name.replace(/(^|-)elevation-/g, "$1")
+  }
+
   // Apply find/replace after prefix if timing is set to afterPrefix
   if (!applyFindReplaceBeforePrefix) {
     name = applyFindReplace(name, exportConfiguration.findReplace)
   }
-  
+
   return name;
 }
 
