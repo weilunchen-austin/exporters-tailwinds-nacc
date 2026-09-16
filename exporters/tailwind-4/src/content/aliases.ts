@@ -93,7 +93,10 @@ export function generateAliases(tokens: Array<Token>, tokenGroups: Array<TokenGr
   bucketsByUtility.forEach((lines, utility) => {
     if (lines.length === 0) return
     const header = UTILITY_SECTION_HEADER[utility] ?? (utility.charAt(0).toUpperCase() + utility.slice(1))
-    sections.push(`/* ${header} */\n${lines.join("\n")}`)
+    // Sort within each bucket so variants of the same base (bg-primary, bg-primary-active,
+    // bg-primary-hover, ...) cluster together — Supernova's sortOrder tends to scatter them.
+    const sortedLines = [...lines].sort((a, b) => a.localeCompare(b))
+    sections.push(`/* ${header} */\n${sortedLines.join("\n")}`)
   })
 
   return sections.join("\n\n") + "\n"
