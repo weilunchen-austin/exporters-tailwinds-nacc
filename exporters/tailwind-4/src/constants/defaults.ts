@@ -92,6 +92,40 @@ export const TAILWIND_ROOT_SCOPED_TYPES: TokenType[] = [
   TokenType.borderWidth,
 ]
 
+/**
+ * File-level usage hint emitted near the top of a generated CSS file. Warns when the whole
+ * file is a primitive scale that should be avoided in product code, and points to the
+ * preferred alternative. See design guidelines §7.1.
+ */
+export const TAILWIND_FILE_HINTS: Partial<Record<TokenType, string>> = {
+  [TokenType.dimension]: "Primitive pixel scale — use the semantic space tokens (--spacing-xs/sm/md/lg/xl…) from tailwind.space.css. Reach for these only when no semantic size fits.",
+  [TokenType.color]: "Semantic tokens (top) reference primitives. The four groups Background, Text, Border, Foreground are aliased as bg-*, text-*, border-* / ring-* / outline-*, fill-*. Primitives (bottom) hold raw values — use them directly only when no semantic token fits.",
+}
+
+/**
+ * Sub-section usage hint appended to the group sub-header comment. Keyed by
+ * (token type → lowercase Figma group name). Used to flag footguns per role, e.g. that
+ * `--breakpoint-*` is consumed by responsive variants, not `var()`.
+ */
+export const TAILWIND_GROUP_HINTS: Partial<Record<TokenType, Record<string, string>>> = {
+  [TokenType.size]: {
+    breakpoint: "used automatically by sm:, md:, lg: responsive variants — don't reference via var()",
+    width: "use w-width-<size>, min-w-width-<size>, max-w-width-<size>",
+    icon: "prefer the icon-<size> utility below — using var() sets only one dimension",
+    viewport: "plain var — consume via var(--viewport-*) in custom CSS",
+  },
+}
+
+/**
+ * Ordered list of sub-group keys that should render first in a file. Everything else keeps
+ * Supernova's original sortOrder at the bottom. Used to float the semantic color groups
+ * (aliased Background/Text/Border/Foreground) above primitive palettes and informational
+ * scales so the file reads "what you should reach for" → "what backs it".
+ */
+export const TAILWIND_PRIORITY_GROUPS: Partial<Record<TokenType, string[]>> = {
+  [TokenType.color]: ["background", "text", "border", "foreground"],
+}
+
 export const TAILWIND_ALLOWED_CUSTOMIZATION: TokenType[] = [
   TokenType.color,
   TokenType.space,

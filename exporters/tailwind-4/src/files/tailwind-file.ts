@@ -10,7 +10,16 @@ import { FileStructure } from "../../config"
 import { convertedToken, isAllowedTokenType, isExcludedByPath, isExcludedByProperty, analyzeTokensForOklchUtilities, generateOklchUtilityVariable, getGroupOverride, getTokenScope, tokenVariableName } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
 import { generateAliases, detectAliasCollisions } from "../content/aliases"
-import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
+import { DEFAULT_CONFIG_FILE_NAMES, TAILWIND_FILE_HINTS, TAILWIND_GROUP_HINTS, TAILWIND_PRIORITY_GROUPS } from "../constants/defaults"
+
+/**
+ * A literal `*​/` inside a CSS `/​* … *​/` comment closes it prematurely, so any string that
+ * is going to be interpolated into a comment must be sanitized. Splits the sequence with a
+ * space so it becomes safe text.
+ */
+function sanitizeForCssComment(s: string): string {
+  return s.replace(/\*\//g, "* /")
+}
 
 /**
  * Processes tokens based on theme settings and filters
@@ -249,8 +258,40 @@ function generateCSSVariables(
 
         const emitSubHeaders = subGroups.size > 1
 
+        // Reorder sub-groups into three tiers so semantic tokens render above primitives:
+        //   1. Priority semantic — named in TAILWIND_PRIORITY_GROUPS (e.g. Background,
+        //      Text, Border, Foreground for color), in the order listed there.
+        //   2. Other semantic — sub-groups whose tokens all hold a reference to another
+        //      token (i.e. they inherit a value rather than declaring a raw one).
+        //   3. Primitives — sub-groups whose tokens hold raw values.
+        // Within each tier we keep Supernova's original sortOrder via the stable sort.
+        const priority = TAILWIND_PRIORITY_GROUPS[tokenType] ?? []
+        const priorityIndex = new Map<string, number>()
+        priority.forEach((name, i) => priorityIndex.set(name.toLowerCase(), i))
+        const isReferencedToken = (t: Token): boolean =>
+            (t as unknown as { value?: { referencedTokenId?: string | null } }).value?.referencedTokenId != null
+        const orderedSubGroups = new Map<string, Token[]>(
+            Array.from(subGroups.entries())
+                .map(([key, tokens], originalIndex) => {
+                    const priorityRank = priorityIndex.get(key.toLowerCase())
+                    let rank: number
+                    if (priorityRank !== undefined) {
+                        rank = priorityRank
+                    } else {
+                        const allReferenced = tokens.length > 0 && tokens.every(isReferencedToken)
+                        rank = allReferenced ? priority.length : priority.length + 1
+                    }
+                    return { key, tokens, originalIndex, rank }
+                })
+                .sort((a, b) => {
+                    if (a.rank !== b.rank) return a.rank - b.rank
+                    return a.originalIndex - b.originalIndex
+                })
+                .map(({ key, tokens }) => [key, tokens])
+        )
+
         const sections: string[] = []
-        subGroups.forEach((groupTokens, groupName) => {
+        orderedSubGroups.forEach((groupTokens, groupName) => {
             const declarations = groupTokens
                 .map((token) => convertedToken(token, mappedTokens, tokenGroups, colorTokensNeedingOklch, themePath))
                 .filter((declaration): declaration is string => declaration !== null)
@@ -259,7 +300,9 @@ function generateCSSVariables(
 
             let section = ""
             if (emitSubHeaders && groupName) {
-                section += `\n${indentString}/* ${groupName} */\n`
+                const groupHint = TAILWIND_GROUP_HINTS[tokenType]?.[groupName.toLowerCase()]
+                const header = groupHint ? `${groupName} — ${groupHint}` : groupName
+                section += `\n${indentString}/* ${sanitizeForCssComment(header)} */\n`
             }
             section += declarations.join("\n")
             sections.push(section)
@@ -461,6 +504,15 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
 
         // Add debug information
         content += generateDebugInfo(themePath, tokensOfType.length, [], type)
+
+        // File-level usage hint (base runs only — themed files reuse the base semantic mapping,
+        // so the hint would just duplicate). See design guidelines §7.1.
+        if (!themePath) {
+            const fileHint = TAILWIND_FILE_HINTS[type]
+            if (fileHint) {
+                content += `/* ${sanitizeForCssComment(fileHint)} */\n\n`
+            }
+        }
 
         // Partition tokens by target scope. Most tokens go into `@theme inline { … }` (or
         // the theme selector for themed runs). Some Figma groups route to `:root { … }`
