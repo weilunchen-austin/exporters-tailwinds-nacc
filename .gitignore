@@ -79,6 +79,11 @@ web_modules/
 .env.production.local
 .env.local
 
+# Local-only notes / scripts (kept off git, safe for secrets)
+*.local.md
+*.local.sh
+*.local.txt
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
