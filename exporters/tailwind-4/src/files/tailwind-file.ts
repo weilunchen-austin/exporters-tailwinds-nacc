@@ -7,7 +7,7 @@ import { FileHelper, ThemeHelper, GeneralHelper } from "@supernovaio/export-util
 import { OutputTextFile, Token, TokenGroup, TokenType, TokenTheme } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FileStructure } from "../../config"
-import { convertedToken, isAllowedTokenType, isExcludedByPath, isExcludedByProperty, analyzeTokensForOklchUtilities, generateOklchUtilityVariable } from "../content/token"
+import { convertedToken, isAllowedTokenType, isExcludedByPath, isExcludedByProperty, analyzeTokensForOklchUtilities, generateOklchUtilityVariable, getGroupOverride, getTokenScope, tokenVariableName } from "../content/token"
 import { generateTypographyClass } from "../content/typography"
 import { generateAliases, detectAliasCollisions } from "../content/aliases"
 import { DEFAULT_CONFIG_FILE_NAMES } from "../constants/defaults"
@@ -224,13 +224,21 @@ function generateCSSVariables(
             cssVariables += `${indentString}/* ${tokensOfType.length} ${tokenType} tokens */\n`
         }
 
-        // Sub-group tokens by tokenPath[1] + tokenPath[2] (e.g. "Gray / Light", "Background"),
-        // preserving Supernova's sortOrder via insertion order. Path[0] is dropped because it
-        // duplicates the type header already emitted above (e.g. "Color").
+        // Sub-group tokens by role. For types with per-group overrides (Size → Breakpoint,
+        // Width, Icon, Viewport per §2.3), use the matched Figma group name so each role gets
+        // its own labelled section. For everything else, fall back to tokenPath[1] + [2]
+        // (e.g. "Gray / Light", "Background") — path[0] is dropped because it duplicates the
+        // type header emitted above.
         const subGroups = new Map<string, Token[]>()
         for (const token of tokensOfType) {
-            const path = token.tokenPath || []
-            const key = path.slice(1, 3).join(" / ")
+            const overrideMatch = getGroupOverride(token, tokenGroups)
+            let key: string
+            if (overrideMatch) {
+                key = overrideMatch.groupName
+            } else {
+                const path = token.tokenPath || []
+                key = path.slice(1, 3).join(" / ")
+            }
             const bucket = subGroups.get(key)
             if (bucket) {
                 bucket.push(token)
@@ -454,12 +462,51 @@ export function generateStyleFiles(tokens: Array<Token>, tokenGroups: Array<Toke
         // Add debug information
         content += generateDebugInfo(themePath, tokensOfType.length, [], type)
 
-        // Generate CSS variables
-        let cssVariables = ''
-        cssVariables += generateCSSVariables(tokensOfType, mappedTokens, tokenGroups, undefined, type, themePath)
+        // Partition tokens by target scope. Most tokens go into `@theme inline { … }` (or
+        // the theme selector for themed runs). Some Figma groups route to `:root { … }`
+        // instead (Size/Icon and Size/Viewport per §2.3) or the entire type is root-scoped
+        // (BorderWidth per §2.4). Icons additionally emit an `@utility` per size.
+        const themeTokens: Token[] = []
+        const rootTokens: Token[] = []
+        const utilityTokens: Token[] = []
+        for (const token of tokensOfType) {
+            const scope = getTokenScope(token, tokenGroups)
+            if (scope === "root") rootTokens.push(token)
+            else themeTokens.push(token)
+            const overrideMatch = getGroupOverride(token, tokenGroups)
+            if (overrideMatch?.override.utility) utilityTokens.push(token)
+        }
 
-        // Add the CSS variables to the content
-        content += `${themeDirective} {\n${cssVariables}}\n`
+        // Emit the @theme (or theme-selector) block, if any tokens land there.
+        if (themeTokens.length > 0) {
+            const themeBlock = generateCSSVariables(themeTokens, mappedTokens, tokenGroups, undefined, type, themePath)
+            content += `${themeDirective} {\n${themeBlock}}\n`
+        }
+
+        // Emit the :root block for root-scoped tokens. In themed runs, root-scoped tokens
+        // (rare — BorderWidth isn't themed) still need to sit under the theme's selector so
+        // theme overrides apply if ever introduced. Otherwise this is a plain `:root`.
+        if (rootTokens.length > 0) {
+            const rootDirective = themePath && theme
+                ? (themePath.toLowerCase() === "light"
+                    ? ":root"
+                    : exportConfiguration.themeSelector.replace("{theme}", themePath))
+                : ":root"
+            const rootBlock = generateCSSVariables(rootTokens, mappedTokens, tokenGroups, undefined, type, themePath)
+            content += `${rootDirective} {\n${rootBlock}}\n`
+        }
+
+        // Emit `@utility` blocks (only in base runs — icon sizes aren't themed).
+        if (!themePath && utilityTokens.length > 0) {
+            content += "\n"
+            for (const token of utilityTokens) {
+                const overrideMatch = getGroupOverride(token, tokenGroups)
+                if (overrideMatch?.override.utility === "square") {
+                    const varName = tokenVariableName(token, tokenGroups)
+                    content += `@utility ${varName} { width: var(--${varName}); height: var(--${varName}); }\n`
+                }
+            }
+        }
 
         // Add typography classes if this is the typography type
         if (type === TokenType.typography) {

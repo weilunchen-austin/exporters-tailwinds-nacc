@@ -56,6 +56,42 @@ export const TAILWIND_STRIP_GROUP_TYPES: TokenType[] = [
   TokenType.radius
 ]
 
+/**
+ * Namespace and scope override for tokens whose Figma group requires a different Tailwind
+ * treatment than the token type's default. See design guidelines §2.3.
+ *
+ * `namespace`         — replaces the type's default variable prefix.
+ * `scope`             — `"theme"` for `@theme inline { ... }`, `"root"` for plain `:root { ... }`.
+ * `keepGroupSegment`  — when true, the Figma group name stays in the variable
+ *                       (e.g. `Width/md` → `--container-width-md`). When false, it is dropped
+ *                       (e.g. `Breakpoint/md` → `--breakpoint-md`).
+ * `utility`           — optional extra emission. `"square"` produces
+ *                       `@utility <name> { width: var(--<name>); height: var(--<name>); }`.
+ */
+export type GroupOverride = {
+  namespace: string
+  scope: "theme" | "root"
+  keepGroupSegment: boolean
+  utility?: "square"
+}
+
+export const TAILWIND_GROUP_OVERRIDES: Partial<Record<TokenType, Record<string, GroupOverride>>> = {
+  [TokenType.size]: {
+    breakpoint: { namespace: "breakpoint", scope: "theme", keepGroupSegment: false },
+    width:      { namespace: "container",  scope: "theme", keepGroupSegment: true },
+    icon:       { namespace: "icon",       scope: "root",  keepGroupSegment: false, utility: "square" },
+    viewport:   { namespace: "viewport",   scope: "root",  keepGroupSegment: false },
+  },
+}
+
+/**
+ * Token types whose variables are plain CSS custom properties (`:root { ... }`) rather than
+ * Tailwind `@theme inline` entries. See design guidelines §2.4.
+ */
+export const TAILWIND_ROOT_SCOPED_TYPES: TokenType[] = [
+  TokenType.borderWidth,
+]
+
 export const TAILWIND_ALLOWED_CUSTOMIZATION: TokenType[] = [
   TokenType.color,
   TokenType.space,

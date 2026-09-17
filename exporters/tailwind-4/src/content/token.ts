@@ -2,7 +2,7 @@ import { NamingHelper, CSSHelper, GeneralHelper, StringCase } from "@supernovaio
 import { Token, TokenGroup, TokenType, TypographyTokenValue, FontSizeTokenValue, LineHeightTokenValue, LetterSpacingTokenValue, FontWeightTokenValue, TypographyToken, AnyDimensionTokenValue, AnyTokenValue, AnyToken } from "@supernovaio/sdk-exporters"
 import { exportConfiguration } from ".."
 import { FindReplaceTiming } from "../../config"
-import { TAILWIND_TOKEN_PREFIXES, TAILWIND_ALLOWED_CUSTOMIZATION, TAILWIND_STRIP_GROUP_TYPES } from "../constants/defaults"
+import { TAILWIND_TOKEN_PREFIXES, TAILWIND_ALLOWED_CUSTOMIZATION, TAILWIND_STRIP_GROUP_TYPES, TAILWIND_GROUP_OVERRIDES, TAILWIND_ROOT_SCOPED_TYPES, GroupOverride } from "../constants/defaults"
 import { ColorHelper } from "@supernovaio/export-utils"
 import { ColorFormat } from "@supernovaio/export-utils"
 
@@ -23,6 +23,55 @@ export function getTokenPrefix(tokenType: TokenType): string {
  */
 export function isAllowedTokenType(tokenType: TokenType): boolean {
   return TAILWIND_ALLOWED_CUSTOMIZATION.includes(tokenType)
+}
+
+/**
+ * Looks up a group override for a token, matching a Figma group segment (from the token's
+ * path or its parent-group hierarchy) against the type's override table. Used for the Size
+ * collection, where different Figma groups need different Tailwind namespaces + CSS scopes
+ * per design guidelines §2.3.
+ *
+ * Returns both the override and the original (cased) group name — the caller uses the name
+ * for section headers and for reconstructing the variable name.
+ */
+export function getGroupOverride(
+  token: Token,
+  tokenGroups: Array<TokenGroup>
+): { override: GroupOverride; groupName: string } | null {
+  const typeOverrides = TAILWIND_GROUP_OVERRIDES[token.tokenType]
+  if (!typeOverrides) return null
+
+  const path = token.tokenPath || []
+  for (const segment of path) {
+    const override = typeOverrides[segment.toLowerCase()]
+    if (override) return { override, groupName: segment }
+  }
+
+  const parent = tokenGroups.find((g) => g.id === token.parentGroupId)
+  if (parent) {
+    const parentPath = (parent as unknown as { path?: string[] }).path || []
+    for (const segment of [...parentPath, parent.name]) {
+      const override = typeOverrides[segment.toLowerCase()]
+      if (override) return { override, groupName: segment }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Returns the target scope (theme vs root) for a token. Root-scoped types (BorderWidth per
+ * §2.4) always go to `:root`. Otherwise, a group override may override the default `theme`
+ * scope. Falls back to `"theme"` for the base @theme inline block.
+ */
+export function getTokenScope(
+  token: Token,
+  tokenGroups: Array<TokenGroup>
+): "theme" | "root" {
+  if (TAILWIND_ROOT_SCOPED_TYPES.includes(token.tokenType)) return "root"
+  const overrideMatch = getGroupOverride(token, tokenGroups)
+  if (overrideMatch) return overrideMatch.override.scope
+  return "theme"
 }
 
 const SEMANTIC_GROUPS = ["background", "text", "border", "foreground"] as const
@@ -454,6 +503,22 @@ export function tokenVariableName(token: Token, tokenGroups: Array<TokenGroup>):
 
   // For non-color tokens or when color utility prefixes are disabled
   const parent = tokenGroups.find((group) => group.id === token.parentGroupId)
+
+  // Per-group override (Size collection routing, §2.3). Replaces the type prefix with the
+  // group's own namespace, and drops the group segment when it would duplicate the namespace
+  // (Breakpoint/Icon/Viewport). For Width the segment stays, yielding `--container-width-md`.
+  const overrideMatch = getGroupOverride(token, tokenGroups)
+  if (overrideMatch) {
+    prefix = overrideMatch.override.namespace
+    const effectiveParent = overrideMatch.override.keepGroupSegment ? (parent || null) : null
+    let name = NamingHelper.codeSafeVariableNameForToken(token, StringCase.kebabCase, effectiveParent, prefix, findReplaceForNamingHelper)
+    name = normalizeForTailwindConfig(name)
+    if (!applyFindReplaceBeforePrefix) {
+      name = applyFindReplace(name, exportConfiguration.findReplace)
+    }
+    return name
+  }
+
   // For token types whose Figma group name duplicates the Tailwind namespace (FontSize, LineHeight,
   // FontWeight, FontFamily, BorderRadius), drop the parent so we get e.g. `--text-md` instead of
   // `--text-font-size-md`. See design guidelines §2.2.
